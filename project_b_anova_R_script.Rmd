@@ -1,0 +1,212 @@
+---
+title: "project_B"
+author: "Ling"
+date: "3/31/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(foreign) # for importing spss data
+library(GGally) # correlation matrix
+library(knitr) # kable
+library(tidyverse)
+library(openxlsx) # write .xlsx
+library(car) # For Anova(), to control the type of sums of squares 
+
+# import data
+project_b_dataset <- read.spss("/Users/ling/Downloads/2018_02_25_SPSS_dataset_project_B.sav", to.data.frame=TRUE)
+
+```
+
+```{r export spss files, include = FALSE}
+# select relevent variables for mixed-anova in spss (wide format)
+RT_ACC_omissions <- project_b_dataset %>%
+  select(GEN_nonsmoker, 
+         SSRT_neutral, SSRT_general_reward, SSRT_specific_reward, 
+         perc_correct_neutral, perc_correct_general_reward, perc_correct_specific_reward,
+         perc_omissions_neutral, perc_omissions_general_reward, perc_omissions_specific_reward
+  )
+  
+# output two formats that can be read into spss (didnt work)
+write.foreign(as.data.frame(RT_ACC_omissions), "/Users/ling/Downloads/RT_ACC_omissions.txt", "/Users/ling/Downloads/RT_ACC_omissions.sps", package="SPSS")
+
+# output to excel format (work)
+write.xlsx(RT_ACC_omissions, "/Users/ling/Downloads/RT_ACC_omissions.xlsx")
+```
+
+
+```{r clean data, include=FALSE}
+## tidy datasets for anova in r
+# reaction time
+RT <- project_b_dataset %>%
+  select(RSSFilename, GEN_nonsmoker, SSRT_neutral, SSRT_general_reward, SSRT_specific_reward) %>% 
+  gather(key = reward_conditions, value = reaction_time, c(SSRT_neutral,SSRT_general_reward,SSRT_specific_reward), factor_key = TRUE) %>% 
+  separate(reward_conditions, into = c("SSRT", "conditions", "reward")) %>% 
+  select(RSSFilename, GEN_nonsmoker, conditions, reaction_time)
+
+# accuracy percentage
+ACC <- project_b_dataset %>%
+  select(RSSFilename, GEN_nonsmoker, perc_correct_neutral, perc_correct_general_reward, perc_correct_specific_reward) %>% 
+  gather(key = reward_conditions, value = accuracy, c(perc_correct_specific_reward, perc_correct_neutral, perc_correct_general_reward), factor_key = TRUE) %>% 
+  separate(reward_conditions, into = c("perc", "correct", "conditions", "reward")) %>% 
+  select(RSSFilename, GEN_nonsmoker, conditions, accuracy)
+
+# ommisions
+omissions <- project_b_dataset %>% 
+  select(RSSFilename, GEN_nonsmoker,  perc_omissions_neutral, perc_omissions_general_reward, perc_omissions_specific_reward) %>% 
+  gather(key = reward_conditions, value = omission, c(perc_omissions_neutral, perc_omissions_general_reward, perc_omissions_specific_reward)) %>% 
+  separate(reward_conditions, into = c("perc", "omissions", "conditions", "reward")) %>% 
+  select(RSSFilename, GEN_nonsmoker, conditions, omission)
+
+# merge datasets
+RT_ACC <- merge(RT, ACC, by = c("RSSFilename", "GEN_nonsmoker", "conditions"))
+total_clean <- merge(RT_ACC, omissions, by = c("RSSFilename", "GEN_nonsmoker", "conditions"))
+
+```
+
+## Correlation Matrix
+
+```{r EDA, echo=FALSE}
+## EDA
+# correlation matrix plots
+project_b_dataset %>% 
+  select(BIS_Total, STIMP_MEAN, STIMP2_MEAN, POMS_total_mood_disturbance) %>%
+  ggpairs()
+
+```
+
+## Descriptive Statistics
+
+```{r descriptive, echo=FALSE}
+## descriptive table
+descriptive <- total_clean %>%
+  group_by(GEN_nonsmoker, conditions) %>% 
+  summarise(N = length(RSSFilename),
+            Mean_RT = mean(reaction_time, na.rm=TRUE), 
+            Mean_ACC = mean(accuracy, na.rm = T),
+            Mean_omission = mean(omission, na.rm = T),
+            SEM_RT = sd(reaction_time)/sqrt(length(RSSFilename)),
+            SEM_ACC = sd(accuracy)/sqrt(length(RSSFilename)),
+            SEM_omission = sd(omission)/sqrt(length(RSSFilename)))
+
+kable(descriptive, digits=2, format="pandoc", caption="Descriptive Statistics for reaction time, accuracy and omission")
+
+```
+
+## Plots 
+
+```{r bar plots for 3 DV, echo=FALSE}
+# reaction time
+descriptive %>% 
+  ggplot() +
+  aes(x = conditions, y = Mean_RT, fill = as.factor(GEN_nonsmoker)) + 
+  geom_bar(position = position_dodge(), stat = "identity", width = .5) +
+  geom_errorbar(aes(ymin = Mean_RT - SEM_RT, ymax = Mean_RT + SEM_RT), width = .1, position = position_dodge(0.5)) +
+  theme_bw() + 
+  scale_fill_discrete(name = "Groups", breaks = c("0", "1"), labels = c("Smokers", "Non-smokers")) +
+  ylab("Reaction Time (ms)") +
+  xlab("Reward Conditions") +
+  ggtitle("Reaction time for different reward conditions\n(bars indicating SEM, N = 26)")
+  
+# accuracy 
+descriptive %>% 
+  ggplot() +
+  aes(x = conditions, y = Mean_ACC, fill = as.factor(GEN_nonsmoker)) + 
+  geom_bar(position = position_dodge(), stat = "identity", width = .5) +
+  geom_errorbar(aes(ymin = Mean_ACC - SEM_ACC, ymax = Mean_ACC + SEM_ACC), width = .1, position = position_dodge(0.5)) +
+  theme_bw() + 
+  scale_fill_discrete(name = "Groups", breaks = c("0", "1"), labels = c("Smokers", "Non-smokers")) +
+  ylab("Reaction Time (ms)") +
+  xlab("Reward Conditions") +
+  ggtitle("Reaction time for different reward conditions\n(bars indicating SEM, N = 26)")
+
+# omission
+descriptive %>% 
+  ggplot() +
+  aes(x = conditions, y = Mean_omission, fill = as.factor(GEN_nonsmoker)) + 
+  geom_bar(position = position_dodge(), stat = "identity", width = .5) +
+  geom_errorbar(aes(ymin = Mean_omission - SEM_omission, ymax = Mean_omission + SEM_omission), width = .1, position = position_dodge(0.5)) +
+  theme_bw() + 
+  scale_fill_discrete(name = "Groups", breaks = c("0", "1"), labels = c("Smokers", "Non-smokers")) +
+  ylab("Reaction Time (ms)") +
+  xlab("Reward Conditions") +
+  ggtitle("Reaction time for different reward conditions\n(bars indicating SEM, N = 26)")
+
+```
+
+## Mixed ANOVA  
+  **Independent variables**: group (as between); reward conditions (as within).  
+  **Dependent variables**: reaction time, accuracy, omission.  
+    
+### Reactione Time  
+   A 2x3 ANOVA to test if there are differences in reaction time based on different group and the types of reward.
+
+```{r mixed anova rt, echo=FALSE}
+  # (For ANOVAs with within-subjects variables, the data must be in long format)
+
+# reaction time
+# aov_rt <- aov(reaction_time ~ GEN_nonsmoker * conditions + Error(RSSFilename/conditions), data = total_clean)
+# summary(aov_rt)
+
+model_rt <- lm(reaction_time ~ GEN_nonsmoker * conditions, data = total_clean)
+rt_aov <- Anova(model_rt, type = 3)
+
+# Effect size (partial eta-squared)
+rt_aov$pes <- c(rt_aov$'Sum Sq'[-nrow(rt_aov)], NA)/(rt_aov$'Sum Sq' + rt_aov$'Sum Sq'[nrow(rt_aov)]) # SS for each effect divided by the last SS (SS_residual)
+
+# output result
+  # change column names and row names
+colnames(rt_aov) <- c("ss", "df", "$F$", "$p$", "partial $\\eta^2$") 
+rownames(rt_aov) <- c("(Intercept)", "group", "reward conditions", "group:reward conditions", "Residuals") 
+  # output table, omit the intercept row
+kable(rt_aov[-1, ], digit = 2, format = "pandoc", caption = "ANOVA of Reaction Time")
+
+
+# table of means
+# model.tables(aov_rt, "means")
+  # table the results
+# kable(aov_rt, digits = 2, format="pandoc", caption="ANOVA of Reaction Time")
+# 
+# library(apaTables)
+# apa.aov.table(aov_rt, filename = "RT table.doc")
+
+```
+
+### Accuracy  
+
+   A 2x3 ANOVA to test if there are differences in accuracy based on different group and the types of reward.
+
+```{r mixed anova acc, echo=FALSE}
+# fit a model, accuracy
+model_acc <- lm(accuracy ~ GEN_nonsmoker * conditions, data = total_clean)
+acc_aov <- Anova(model_acc, type = 3)
+ # effect size
+acc_aov$pes <- c(acc_aov$'Sum Sq'[-nrow(acc_aov)], NA)/(acc_aov$'Sum Sq' + acc_aov$'Sum Sq'[nrow(acc_aov)])
+ # output
+colnames(acc_aov) <- c("ss", "df", "$F$", "$p$", "partial $\\eta^2$") 
+rownames(acc_aov) <- c("(Intercept)", "group", "reward conditions", "group:reward conditions", "Residuals") 
+kable(acc_aov[-1, ], digit = 2, format = "pandoc", caption = "ANOVA of Accuracy")
+
+```
+
+
+### Omission  
+
+   A 2x3 ANOVA to test if there are differences in omission based on different group and the types of reward.
+
+```{r mixed anova omission, echo=FALSE}
+# fit a model, omission
+model_omi <- lm(omission ~ GEN_nonsmoker * conditions, data = total_clean)
+omi_aov <- Anova(model_omi, type = 3)
+ # effect size
+omi_aov$pes <- c(omi_aov$'Sum Sq'[-nrow(omi_aov)], NA)/(omi_aov$'Sum Sq' + omi_aov$'Sum Sq'[nrow(omi_aov)])
+ # output
+colnames(omi_aov) <- c("ss", "df", "$F$", "$p$", "partial $\\eta^2$") 
+rownames(omi_aov) <- c("(Intercept)", "group", "reward conditions", "group:reward conditions", "Residuals") 
+kable(omi_aov[-1, ], digit = 2, format = "pandoc", caption = "ANOVA of Omission")
+```
+
+
+
+
